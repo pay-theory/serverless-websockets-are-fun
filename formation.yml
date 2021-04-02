@@ -1,0 +1,149 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Serverless WebSockets Are Fun
+Parameters:
+  Region:
+    Type: String
+    Default: us-east-1
+  AWSAccount:
+    Type: String
+    Default: 291752019718
+  FunctionName:
+    Type: String
+    Default: tutorial-websocket
+  DeploymentBucketName:
+    Type: String
+    Default: tutorial-websocket
+  DeploymentKey:
+    Type: String
+    Default: my-deployment-package.zip
+Resources:
+  WebSocketRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub '${FunctionName}'
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+  WebSocketLambda:
+    Type: 'AWS::Lambda::Function'
+    DependsOn:
+      - WebSocketRole
+    Properties:
+      FunctionName: !Sub '${FunctionName}'
+      Role: !GetAtt WebSocketRole.Arn
+      Code:
+        S3Bucket: !Sub '${DeploymentBucketName}'
+        S3Key: !Sub '${DeploymentKey}' 
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.8
+      MemorySize: 10240
+  WebSocketPolicy:
+    Type: 'AWS::IAM::Policy'
+    DependsOn:
+      - WebSocketLambda
+    Properties: 
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: lambda:InvokeFunction
+            Resource: !GetAtt WebSocketLambda.Arn
+      PolicyName: !Sub '${FunctionName}'
+      Roles: 
+        - !Ref WebSocketRole
+  WebSocketApiGateway:
+    DependsOn:
+      - WebSocketLambda
+    Type: 'AWS::ApiGatewayV2::Api'
+    Properties:
+      Name: !Sub '${FunctionName}'
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: $request.body.action
+  WebSocketApiGatewayPermission:
+    Type: "AWS::Lambda::Permission"
+    DependsOn:
+      - WebSocketApiGateway
+      - WebSocketLambda
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !GetAtt WebSocketLambda.Arn
+      Principal:
+        Fn::Join:
+        - ""
+        - - "apigateway."
+          - Ref: "AWS::URLSuffix" 
+  WebSocketApiGatewayStage:
+    Type: 'AWS::ApiGatewayV2::Stage'
+    DependsOn:
+      - WebSocketApiGateway
+    Properties:
+      StageName: 'latest'
+      ApiId: !Ref WebSocketApiGateway
+  WebSocketApiRouteIntegration:
+    Type: 'AWS::ApiGatewayV2::Integration'
+    DependsOn:
+      - WebSocketApiGateway
+    Properties:
+      ApiId: !Ref WebSocketApiGateway
+      IntegrationType: 'AWS_PROXY'
+      IntegrationUri: !Sub 'arn:aws:apigateway:${Region}:lambda:path/2015-03-31/functions/arn:aws:lambda:${Region}:${AWSAccount}:function:${FunctionName}/invocations'
+  WebSocketApiConnectRoute:
+    Type: 'AWS::ApiGatewayV2::Route'
+    DependsOn:
+      - WebSocketApiGateway
+      - WebSocketApiRouteIntegration
+    Properties:
+      ApiId: !Ref WebSocketApiGateway
+      RouteKey: $connect
+      AuthorizationType: NONE
+      Target: !Join
+        - '/'
+        - - 'integrations'
+          - !Ref WebSocketApiRouteIntegration
+  WebSocketApiDisconnectRoute:
+    Type: 'AWS::ApiGatewayV2::Route'
+    DependsOn:
+      - WebSocketApiGateway
+      - WebSocketApiRouteIntegration
+    Properties:
+      ApiId: !Ref WebSocketApiGateway
+      RouteKey: $disconnect
+      Target: !Join
+        - '/'
+        - - 'integrations'
+          - !Ref WebSocketApiRouteIntegration
+  WebSocketApiDefaultRoute:
+    Type: 'AWS::ApiGatewayV2::Route'
+    DependsOn:
+      - WebSocketApiGateway
+      - WebSocketApiRouteIntegration
+    Properties:
+      ApiId: !Ref WebSocketApiGateway
+      RouteKey: $default
+      Target: !Join
+        - '/'
+        - - 'integrations'
+          - !Ref WebSocketApiRouteIntegration
+  WebSocketApiGatewayDeployment:
+    Type: 'AWS::ApiGatewayV2::Deployment'
+    DependsOn:
+      - WebSocketApiGateway
+      - WebSocketApiDefaultRoute
+      - WebSocketApiDisconnectRoute
+      - WebSocketApiConnectRoute
+      - WebSocketApiRouteIntegration
+      - WebSocketApiGatewayStage
+      - WebSocketLambda
+      - WebSocketPolicy
+    Properties:
+      ApiId: !Ref WebSocketApiGateway
+      StageName: latest
+Outputs:
+  APIEndpoint:
+    Value: !GetAtt WebSocketApiGateway.ApiEndpoint
