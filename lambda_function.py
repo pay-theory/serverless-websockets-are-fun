@@ -8,27 +8,39 @@ connection_handles = [
 REQUEST_HANDLED = {"statusCode": 200}
 
 # we need to populate this after CloudFormation 
-SOCKETS_ENDPOINT = "wss://gudvhyl103.execute-api.us-east-1.amazonaws.com/latest"
+SOCKETS_ENDPOINT = "https://gudvhyl103.execute-api.us-east-1.amazonaws.com/latest"
 
 def lambda_handler(event, context):
+
+    connection_id = event["requestContext"].get("connectionId")
+
     if event["requestContext"]["eventType"] in connection_handles:
         return manage_connection(event,context)
     else:
         return handle_incoming_ws_message(event, context)
         
 def manage_connection(event, context):
+
+    connection_id = event["requestContext"].get("connectionId")
+    if event["requestContext"]["eventType"] == "CONNECT":
+        print(f"connected: {connection_id}")
+    else:
+        print(f"disconnect: {connection_id}")
+
     return REQUEST_HANDLED
 
 def handle_incoming_ws_message(event, context):
-    return reflect_incoming(event["requestContext"].get("connectionId"),event.get("body", ""))
-                                        
-
-def reflect_incoming(connection,incoming):
+    connection_id = event["requestContext"].get("connectionId")
     gatewayapi = boto3.client("apigatewaymanagementapi",
                               endpoint_url=SOCKETS_ENDPOINT)
-    gatewayapi.post_to_connection(ConnectionId=connection,
-                                         Data=incoming)
-    return REQUEST_HANDLED     
+    print(f"SOCKETS_ENDPOINT {SOCKETS_ENDPOINT}")
+    print(f"connection {connection_id}")
+    print(f"body {event.get('body', '')}")
+    gatewayapi.post_to_connection(ConnectionId=connection_id,
+                                         Data=event.get("body", ""))
+    return REQUEST_HANDLED                                         
+
+
 
         
 
